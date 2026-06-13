@@ -48,7 +48,7 @@
 
 set -euo pipefail
 
-SETUP_VERSION="2026.05.14"
+SETUP_VERSION="2026.06.14"
 
 # ── Args ──────────────────────────────────────────────────────────────────────
 
@@ -191,6 +191,7 @@ run_mkdir \
     .claude/rules \
     .claude/commands \
     .claude/scripts \
+    .claude/curator \
     ".claude/homunculus/${SAFE_NAME}" \
     .claude/dev-docs/work-in-progress \
     .claude/dev-docs/archives \
@@ -314,6 +315,21 @@ echo "[4/8] Writing CLAUDE.md + DEVLOG.md..."
 
 install_template generic CLAUDE.md CLAUDE.md
 install_template generic DEVLOG.md DEVLOG.md
+
+# Curator config (self-improvement loop): pinned allowlist + schedule note. The
+# runtime sidecar .claude/curator/usage.json is gitignored (appended below).
+install_template generic .claude/curator/pinned.txt .claude/curator/pinned.txt
+install_template generic .claude/curator/SCHEDULE.md .claude/curator/SCHEDULE.md
+
+# Ensure the curator runtime sidecar is gitignored in the target project.
+if [[ "$DRY_RUN" == "0" ]]; then
+    touch .gitignore
+    for pat in ".claude/curator/usage.json" ".claude/curator/*.tmp"; do
+        grep -qxF "$pat" .gitignore 2>/dev/null || echo "$pat" >> .gitignore
+    done
+else
+    echo "$DRY_PREFIX ensure .gitignore ignores .claude/curator/usage.json + *.tmp"
+fi
 
 # ── [5/8] dev-docs templates ──────────────────────────────────────────────────
 
@@ -605,6 +621,7 @@ echo "════════════════════════�
 
 if [[ "$UPDATE" == "0" && "$DRY_RUN" == "0" ]]; then
     echo ""
-    echo "Next: fill in CLAUDE.md placeholders and configure inject_context.py domains."
+    echo "Next: fill in CLAUDE.md placeholders. inject_context.py auto-discovers skills"
+    echo "      via their 'keywords:' frontmatter — add keywords to a skill to wire it."
     echo "      See .claude/dev-docs/reference/claude_code_deployment_guide.md"
 fi
