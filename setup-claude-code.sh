@@ -32,11 +32,6 @@
 #   --has-relational       scaffold tools/stack_tables_catalog.md (PG stub).
 #   --with-graphify        write tools/graphify_setup.md and try `pip install graphifyy`.
 #   --with-mcp             write .mcp.json wiring graphify.serve to graphify-out/graph.json.
-#   --with-rtk             install RTK CLI proxy (rtk-ai/rtk) via official installer, then
-#                          run `rtk init -g` to wire global PreToolUse Bash hook into
-#                          ~/.claude/settings.json. Appends safe-default exclusions
-#                          (pytest, gh api, kubectl) to ~/.config/rtk/config.toml — see
-#                          rtk-ai/rtk#582 (pytest dedup can paradoxically increase token cost).
 #   --force                allow downgrade of SETUP_VERSION (skip the warning).
 #
 # Distribution:
@@ -48,7 +43,7 @@
 
 set -euo pipefail
 
-SETUP_VERSION="2026.06.14"
+SETUP_VERSION="2026.07.07"
 
 # ── Args ──────────────────────────────────────────────────────────────────────
 
@@ -62,7 +57,6 @@ HAS_TIMESERIES=0
 HAS_RELATIONAL=0
 WITH_GRAPHIFY=0
 WITH_MCP=0
-WITH_RTK=0
 DRY_RUN=0
 UPDATE=0
 FORCE=0
@@ -79,7 +73,6 @@ while [[ $# -gt 0 ]]; do
         --has-relational)  HAS_RELATIONAL=1;     shift ;;
         --with-graphify)   WITH_GRAPHIFY=1;      shift ;;
         --with-mcp)        WITH_MCP=1;           shift ;;
-        --with-rtk)        WITH_RTK=1;           shift ;;
         --dry-run)         DRY_RUN=1;            shift ;;
         --update)          UPDATE=1;             shift ;;
         --force)           FORCE=1;              shift ;;
@@ -191,7 +184,6 @@ run_mkdir \
     .claude/rules \
     .claude/commands \
     .claude/scripts \
-    .claude/curator \
     ".claude/homunculus/${SAFE_NAME}" \
     .claude/dev-docs/work-in-progress \
     .claude/dev-docs/archives \
@@ -316,21 +308,6 @@ echo "[4/8] Writing CLAUDE.md + DEVLOG.md..."
 install_template generic CLAUDE.md CLAUDE.md
 install_template generic DEVLOG.md DEVLOG.md
 
-# Curator config (self-improvement loop): pinned allowlist + schedule note. The
-# runtime sidecar .claude/curator/usage.json is gitignored (appended below).
-install_template generic .claude/curator/pinned.txt .claude/curator/pinned.txt
-install_template generic .claude/curator/SCHEDULE.md .claude/curator/SCHEDULE.md
-
-# Ensure the curator runtime sidecar is gitignored in the target project.
-if [[ "$DRY_RUN" == "0" ]]; then
-    touch .gitignore
-    for pat in ".claude/curator/usage.json" ".claude/curator/*.tmp"; do
-        grep -qxF "$pat" .gitignore 2>/dev/null || echo "$pat" >> .gitignore
-    done
-else
-    echo "$DRY_PREFIX ensure .gitignore ignores .claude/curator/usage.json + *.tmp"
-fi
-
 # ── [5/8] dev-docs templates ──────────────────────────────────────────────────
 
 echo "[5/8] Installing dev-docs templates..."
@@ -384,54 +361,6 @@ if [[ "$WITH_GRAPHIFY" -eq 1 ]]; then
             echo "  ✓ graphifyy installed"
         else
             echo "  ⚠ graphifyy install failed — install manually with: pip install graphifyy"
-        fi
-    fi
-fi
-
-if [[ "$WITH_RTK" -eq 1 ]]; then
-    install_template generic tools/rtk_setup.md tools/rtk_setup.md
-
-    if [[ "$DRY_RUN" == "0" ]]; then
-        if ! command -v jq &>/dev/null; then
-            echo "  ⚠ jq missing — RTK hook will silently pass-through. Install: sudo apt install jq"
-        fi
-
-        if ! command -v rtk &>/dev/null; then
-            echo "  Installing RTK via official installer (rtk-ai/rtk)..."
-            if curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh; then
-                echo "  ✓ RTK installed"
-            else
-                echo "  ⚠ RTK install failed — see https://github.com/rtk-ai/rtk"
-            fi
-        else
-            echo "  ✓ RTK already present: $(rtk --version 2>/dev/null | head -1)"
-        fi
-
-        if command -v rtk &>/dev/null; then
-            # --auto-patch is mandatory for non-tty invocation: without it the
-            # "Patch settings.json? [y/N]" prompt defaults to N and the hook is
-            # never wired.
-            if rtk init -g --auto-patch; then
-                echo "  ✓ rtk init -g --auto-patch — global PreToolUse hook wired (~/.claude/settings.json)"
-            else
-                echo "  ⚠ rtk init -g --auto-patch failed"
-            fi
-
-            RTK_CONFIG="$HOME/.config/rtk/config.toml"
-            if [[ -f "$RTK_CONFIG" ]] && ! grep -q "^exclude_commands" "$RTK_CONFIG"; then
-                cat >> "$RTK_CONFIG" <<'RTK_CFG_EOF'
-
-# Added by setup-claude-code.sh --with-rtk
-# Mitigates rtk-ai/rtk#582: pytest dedup can increase Claude Code token cost.
-[hooks]
-exclude_commands = ["pytest", "gh api", "kubectl"]
-
-[tee]
-enabled = true
-mode = "failures"
-RTK_CFG_EOF
-                echo "  ✓ Appended safe-default exclusions to $RTK_CONFIG"
-            fi
         fi
     fi
 fi
@@ -621,7 +550,6 @@ echo "════════════════════════�
 
 if [[ "$UPDATE" == "0" && "$DRY_RUN" == "0" ]]; then
     echo ""
-    echo "Next: fill in CLAUDE.md placeholders. inject_context.py auto-discovers skills"
-    echo "      via their 'keywords:' frontmatter — add keywords to a skill to wire it."
+    echo "Next: fill in CLAUDE.md placeholders and configure inject_context.py domains."
     echo "      See .claude/dev-docs/reference/claude_code_deployment_guide.md"
 fi
