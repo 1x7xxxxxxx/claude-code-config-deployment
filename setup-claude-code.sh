@@ -43,7 +43,15 @@
 
 set -euo pipefail
 
-SETUP_VERSION="2026.07.07"
+# 2026.07.17 — RE-GENERICISED. The payload tagged 2026.07.07 shipped msdr's PROJECT-SPECIFIC
+# inject_context.py (294 lines: stm32, fanuc, questdb, drilling_sessions) under the label "generic":
+# it had been re-packed from a working tree without re-genericizing, so `--update` would have
+# injected drilling-machine keywords into any repo. Fixed, and the class now ships as a signature
+# (`foreign-repo-path-in-config` in templates/dev-docs/error-classes.md) so it cannot come back
+# unseen. Also added: error-classes.md itself — scripts/audit_runner.py shipped WITHOUT the
+# catalogue it reads, so a fresh install got a runner that exits 2. Orphan-by-construction, in the
+# payload whose job is to catch that.
+SETUP_VERSION="2026.07.17"
 
 # ── Args ──────────────────────────────────────────────────────────────────────
 
@@ -550,6 +558,19 @@ echo "════════════════════════�
 
 if [[ "$UPDATE" == "0" && "$DRY_RUN" == "0" ]]; then
     echo ""
-    echo "Next: fill in CLAUDE.md placeholders and configure inject_context.py domains."
+    # This line used to be load-bearing: DOMAINS shipped empty, inject_context.py is the ONLY
+    # injector of rules/ + skills/, and filling it was delegated to this echo. Measured 2026-07-17
+    # across 6 deployments: 4 left it empty. A 33% hit rate is not inattention — it is a manual step
+    # at the end of a script nobody reads. `_discover_domains()` now makes it non-fatal: a skill or
+    # rule that declares `keywords: a, b, c` in its frontmatter SELF-WIRES. So this is advice now,
+    # and the signature `context-injector-is-a-no-op` (error-classes.md) is what enforces it.
+    echo "Next: fill in CLAUDE.md placeholders."
+    echo ""
+    echo "  Context injection is SELF-WIRING: add \`keywords: a, b, c\` to a skill/rule frontmatter"
+    echo "  and it registers itself — no hook edit. Check what is live with:"
+    echo "      python3 -c \"import sys;sys.path.insert(0,'.claude/hooks');import inject_context as i;print(sorted(i.DOMAINS))\""
+    echo ""
+    echo "  Then seed .claude/dev-docs/error-classes.md as you find bugs, and sweep with:"
+    echo "      python3 .claude/scripts/audit_runner.py --coverage    # no class may be un-swept"
     echo "      See .claude/dev-docs/reference/claude_code_deployment_guide.md"
 fi
