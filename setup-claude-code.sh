@@ -51,7 +51,7 @@ set -euo pipefail
 # unseen. Also added: error-classes.md itself — scripts/audit_runner.py shipped WITHOUT the
 # catalogue it reads, so a fresh install got a runner that exits 2. Orphan-by-construction, in the
 # payload whose job is to catch that.
-SETUP_VERSION="2026.07.17"
+SETUP_VERSION="2026.07.17b"
 
 # ── Args ──────────────────────────────────────────────────────────────────────
 
