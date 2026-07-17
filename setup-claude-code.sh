@@ -14,9 +14,13 @@
 # Modes:
 #   (default)  — fresh bootstrap. Creates .claude/, settings.json, settings.local.json,
 #                CLAUDE.md, DEVLOG.md, dev-docs/. Skips files that already exist.
-#   --update   — re-extract payload only. Updates skills/agents/hooks/commands/rules/
-#                scripts/dev-docs templates. PRESERVES CLAUDE.md, DEVLOG.md, settings*.json
-#                (they are backed up to *.bak before any potential touch).
+#   --update   — re-extract payload. Updates skills/agents/hooks/commands/rules/scripts/dev-docs.
+#                ⚠️  It also OVERWRITES CLAUDE.md, DEVLOG.md and settings*.json with the generic
+#                templates. This block used to say "PRESERVES … settings*.json (backed up to *.bak)":
+#                a .bak is a rollback you must remember to perform, not preservation. Verified on a
+#                real deployment whose settings.json registered 15 hooks, 5 project-specific — all
+#                would have been replaced. To add tools WITHOUT losing local config: copy the files
+#                and MERGE the hook registrations by hand.
 #   --dry-run  — print the plan without touching the filesystem.
 #   --version  — print SETUP_VERSION + sha256 of this script.
 #
@@ -177,7 +181,21 @@ echo "    Script version : $SETUP_VERSION"
 echo "    Repo root      : $REPO_ROOT"
 echo "    Tests dir      : $TESTS_DIR"
 echo "    Preset         : ${PRESET:-<none>}"
-[[ "$UPDATE" == "1" ]] && echo "    Mode           : UPDATE (preserves CLAUDE.md, DEVLOG.md, settings*.json via .bak)"
+# This said "UPDATE (preserves CLAUDE.md, DEVLOG.md, settings*.json via .bak)". It does NOT preserve
+# them — `install_template` copies to .bak and then OVERWRITES with the generic template. A .bak is
+# not preservation; it is a rollback you have to know to perform. Measured 2026-07-17 on a real
+# deployment: `--update --dry-run` printed "preserves … settings*.json" one line above
+# "install template → .claude/settings.json", on a repo whose settings.json registers 15 hooks, 5 of
+# them project-specific. A declaration the code contradicts — the dominant bug of every project using
+# this config, living in the installer that deploys the config.
+[[ "$UPDATE" == "1" ]] && cat <<'WARN'
+    Mode           : UPDATE
+    ⚠️  --update OVERWRITES CLAUDE.md, DEVLOG.md and settings*.json with the generic
+        templates (a .bak is written first — that is a rollback, not preservation).
+        Any project-specific hook you registered will be GONE from settings.json.
+        To add payload tools WITHOUT losing local config: copy the files by hand and
+        MERGE the hook registrations into your existing settings.json.
+WARN
 echo ""
 
 # ── [1/8] Directory structure ─────────────────────────────────────────────────
