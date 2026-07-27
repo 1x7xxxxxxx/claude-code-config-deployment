@@ -334,6 +334,7 @@ copy_payload_subtree generic hooks     .claude/hooks
 copy_payload_subtree generic commands  .claude/commands
 copy_payload_subtree generic rules     .claude/rules
 copy_payload_subtree generic scripts   .claude/scripts
+copy_payload_subtree generic workflows .claude/workflows
 copy_payload_subtree generic tools     tools
 
 if [[ -n "$PRESET" ]]; then
