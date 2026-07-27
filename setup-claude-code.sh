@@ -352,6 +352,14 @@ install_template() {
     local rel_in_template="$2"  # path relative to templates/ root
     local dest="$3"             # absolute path (or relative to REPO_ROOT)
     local src="$PAYLOAD_TMP/$label/templates/$rel_in_template"
+    # --only gates templates too. It did not, and that was a real defect: a
+    # `--only skills` run still installed GANTT.md, REX.md, api/ and
+    # architecture/ into repos that had never asked for them, and one of those
+    # templates carries a mermaid block that does not render — so a surgical
+    # deployment turned an `audit_runner --static` from clean to two hits.
+    # Templates are "documents", so they answer to the pseudo-subtree name
+    # `templates`; pass `--only skills,templates` to get the old behaviour.
+    subtree_selected "templates" || return 0
     [[ -f "$src" ]] || return 0
     if [[ -f "$dest" && "$UPDATE" == "0" ]]; then
         echo "    [skip] $dest already exists (use --update to refresh, with .bak backup)"
@@ -403,6 +411,7 @@ echo "[5/8] Installing dev-docs templates..."
 install_dev_docs() {
     local label="$1"
     local stage="$PAYLOAD_TMP/$label/templates/dev-docs"
+    subtree_selected "templates" || return 0     # see install_template
     [[ -d "$stage" ]] || return 0
     while IFS= read -r -d '' src; do
         local rel="${src#"$stage"/}"
