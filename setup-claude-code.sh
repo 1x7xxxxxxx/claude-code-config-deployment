@@ -405,6 +405,40 @@ echo "[4/8] Writing CLAUDE.md + DEVLOG.md..."
 install_template generic CLAUDE.md CLAUDE.md
 install_template generic DEVLOG.md DEVLOG.md
 
+# Point the new project's CLAUDE.md at the design docs. This is not decoration:
+# ARCHITECTURE.md, NEXT.md and ROADMAP.md live in the baseline and are the only
+# place the component budget, the trigger rules and the open backlog exist. Eight
+# projects were bootstrapped without this and had to have it retrofitted by
+# tools/dev/install_conformance_ratchet.py, because nothing in this script ever
+# named those files. A file nothing names is not read — the same fact this
+# pointer is about.
+#
+# Source of truth is tools/dev/claude-md-pointer.md; the block carries markers so
+# a later run replaces it in place instead of appending a second copy. Available
+# only when the script runs from a baseline clone: piped straight from curl, the
+# repo is not on disk and we say so rather than writing a broken path.
+append_baseline_pointer() {
+    local src="$SCRIPT_DIR/tools/dev/claude-md-pointer.md"
+    if [[ ! -f "$src" ]]; then
+        echo "  ⚠️  baseline pointer NOT written: $src is absent (running outside a" >&2
+        echo "      baseline clone?). CLAUDE.md will not name ARCHITECTURE.md / NEXT.md." >&2
+        echo "      Fix later with: python3 <baseline>/tools/dev/install_conformance_ratchet.py --write" >&2
+        return 0
+    fi
+    if [[ "$DRY_RUN" == "1" ]]; then
+        echo "  would append baseline pointer to CLAUDE.md (source: $src)"
+        return 0
+    fi
+    if grep -q '<!-- baseline-pointer' CLAUDE.md 2>/dev/null; then
+        echo "  baseline pointer already present in CLAUDE.md — left alone"
+        return 0
+    fi
+    printf '\n' >> CLAUDE.md
+    sed "s|{baseline}|$SCRIPT_DIR|g" "$src" >> CLAUDE.md
+    echo "  baseline pointer appended to CLAUDE.md (-> $SCRIPT_DIR)"
+}
+append_baseline_pointer
+
 # ── [5/8] dev-docs templates ──────────────────────────────────────────────────
 
 echo "[5/8] Installing dev-docs templates..."
