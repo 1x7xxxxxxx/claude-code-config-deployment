@@ -55,7 +55,7 @@ set -euo pipefail
 # unseen. Also added: error-classes.md itself — scripts/audit_runner.py shipped WITHOUT the
 # catalogue it reads, so a fresh install got a runner that exits 2. Orphan-by-construction, in the
 # payload whose job is to catch that.
-SETUP_VERSION="2026.07.17b"
+SETUP_VERSION="2026.07.27"
 
 # ── Args ──────────────────────────────────────────────────────────────────────
 
@@ -267,6 +267,39 @@ copy_payload_subtree() {
 
 # Skills: generic first, then preset overlays (preset wins on collision).
 copy_payload_subtree generic skills    .claude/skills
+
+# Retire flat skill files superseded by a spec-layout directory.
+#
+# Claude Code only loads .claude/skills/<name>/SKILL.md; the payload used to
+# ship flat .md files, which were never loaded. copy_payload_subtree uses
+# `cp -rf` and never deletes, so after this migration a project would hold BOTH
+# `foo.md` (inert) and `foo/SKILL.md` (live). The flat one is harmless but
+# confusing, and it poisons the flat-vs-SKILL.md signal the fleet audit reads.
+#
+# Moved, never deleted: `.migrated/` is a dotdir, so the skill loader ignores it
+# and the move is reversible with a single mv.
+retire_flat_skills() {
+    local sdir=".claude/skills"
+    [[ -d "$sdir" ]] || return 0
+    local moved=0 dest="$sdir/.migrated"
+    local d name flat
+    for d in "$sdir"/*/; do
+        [[ -f "$d/SKILL.md" ]] || continue
+        name="$(basename "$d")"
+        flat="$sdir/$name.md"
+        [[ -f "$flat" ]] || continue
+        if [[ "$DRY_RUN" == "1" ]]; then
+            echo "$DRY_PREFIX retire flat skill $flat → $dest/$name.md"
+        else
+            mkdir -p "$dest"
+            mv "$flat" "$dest/$name.md"
+        fi
+        moved=$((moved + 1))
+    done
+    [[ "$moved" -gt 0 ]] && echo "    ✓ $moved flat skill file(s) retired to $dest (reversible)"
+    return 0
+}
+retire_flat_skills
 copy_payload_subtree generic agents    .claude/agents
 copy_payload_subtree generic hooks     .claude/hooks
 copy_payload_subtree generic commands  .claude/commands
@@ -429,7 +462,13 @@ from pathlib import Path
 _FM_RE = re.compile(r"\A(---\n)(.*?)(\n---\s*\n)", re.DOTALL)
 
 md_targets = []
-for sub in ("agents", "commands", "skills", "rules"):
+# skills/ is deliberately excluded. Since skills moved to the spec layout
+# (skills/<name>/SKILL.md), an rglob here would (a) stamp `rex: []` — a key
+# outside the SKILL.md spec — into every skill on every install, and (b) worse,
+# add frontmatter to auxiliary files inside skill folders (references/, assets/,
+# STYLE_PRESETS.md, html-template.md), which must not carry any. The REX
+# convention stays on agents, commands, rules, hooks and scripts.
+for sub in ("agents", "commands", "rules"):
     d = Path(f".claude/{sub}")
     if d.exists():
         md_targets.extend(d.rglob("*.md"))
