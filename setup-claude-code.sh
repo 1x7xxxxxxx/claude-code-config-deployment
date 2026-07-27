@@ -37,6 +37,9 @@
 #   --with-graphify        write tools/graphify_setup.md and try `pip install graphifyy`.
 #   --with-mcp             write .mcp.json wiring graphify.serve to graphify-out/graph.json.
 #   --force                allow downgrade of SETUP_VERSION (skip the warning).
+#   --only LIST            comma-separated subtrees to copy, e.g. --only skills,agents.
+#                          Default: all. Use it when the payload is older than the
+#                          project for some files — check audit_fleet.py provenance first.
 #
 # Distribution:
 #   This script depends on TWO sibling files: setup-payload-generic.tar.gz.b64
@@ -72,6 +75,7 @@ WITH_MCP=0
 DRY_RUN=0
 UPDATE=0
 FORCE=0
+ONLY=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -88,6 +92,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run)         DRY_RUN=1;            shift ;;
         --update)          UPDATE=1;             shift ;;
         --force)           FORCE=1;              shift ;;
+        --only)            ONLY="$2";            shift 2 ;;
         --version)
             hash="$(sha256sum "$0" 2>/dev/null | awk '{print $1}')"
             printf 'setup-claude-code.sh v%s\nsha256: %s\n' "$SETUP_VERSION" "${hash:-unknown}"
@@ -244,11 +249,35 @@ extract_payload generic "$PAYLOAD_GENERIC"
 # Helper: copy payload subtree into a destination, with optional overwrite control.
 # In --update mode, copies always overwrite (refresh). In default mode, never
 # overwrites a CLAUDE.md or DEVLOG.md that already exists at the project root.
+# --only restricts which subtrees are copied.
+#
+# Needed because the payload is not uniformly newer than the projects. Measured
+# on this fleet: the payload's usage_report.py is 7.5K while trading_bot's is
+# 15.2K and plugin_vst's is 8.5K, and session_summary.py / draft_rex.py /
+# observe.py are likewise older in the payload. A blanket copy silently
+# downgrades local work — including the telemetry readers the fleet audit
+# depends on. Run `audit_fleet.py` and read the provenance section before
+# choosing what to push.
+subtree_selected() {
+    [[ -z "$ONLY" ]] && return 0
+    local want="$1"
+    local IFS=','
+    local item
+    for item in $ONLY; do
+        [[ "$item" == "$want" ]] && return 0
+    done
+    return 1
+}
+
 copy_payload_subtree() {
     local label="$1"   # "generic" or preset name
     local subdir="$2"  # e.g. "skills"
     local dest="$3"    # e.g. ".claude/skills"
     local stage="$PAYLOAD_TMP/$label/$subdir"
+    if ! subtree_selected "$subdir"; then
+        echo "    [skip] $subdir (not in --only)"
+        return 0
+    fi
     [[ -d "$stage" ]] || return 0
     run_mkdir "$dest"
     if [[ "$DRY_RUN" == "1" ]]; then
