@@ -564,8 +564,16 @@ install_dev_docs() {
     done < <(find "$stage" -type f -print0)
 }
 
-install_dev_docs generic
+# Preset FIRST, then generic — the same order settings.json already uses above,
+# and for the same reason: install_dev_docs never overwrites, so whoever runs
+# first wins. Since 2026-08-03 the generic payload carries `config-optimale`'s
+# error-classes.md, an empty schema template, while the `extended` preset carries
+# the seeded lineage catalogue. Generic-first would have installed the empty one
+# and then silently skipped the seeded one, so `--preset extended` would ship
+# audit_runner with nothing to sweep. A pure generic install is unaffected: with
+# no preset there is nothing to run first.
 [[ -n "$PRESET" ]] && install_dev_docs "$PRESET"
+install_dev_docs generic
 
 # docs/adr template (if present in payload).
 install_template generic docs/adr/ADR-TEMPLATE.md docs/adr/ADR-TEMPLATE.md
@@ -801,11 +809,21 @@ if [[ "$UPDATE" == "0" && "$DRY_RUN" == "0" ]]; then
     # and the signature `context-injector-is-a-no-op` (error-classes.md) is what enforces it.
     echo "Next: fill in CLAUDE.md placeholders."
     echo ""
-    echo "  Context injection is SELF-WIRING: add \`keywords: a, b, c\` to a skill/rule frontmatter"
-    echo "  and it registers itself — no hook edit. Check what is live with:"
-    echo "      python3 -c \"import sys;sys.path.insert(0,'.claude/hooks');import inject_context as i;print(sorted(i.DOMAINS))\""
-    echo ""
+    # Both paragraphs below are gated on the file they talk about. A generic
+    # install carries no hooks and no reference/ tree since 2026-08-03, so the
+    # ungated version told every new repo to run an import that raises and to
+    # read a guide that is not there — the closing message being the one thing
+    # a user is guaranteed to read. Same class the `config-names-a-missing-path`
+    # signature exists to catch, printed by the installer that ships the signature.
+    if [[ -f ".claude/hooks/inject_context.py" ]]; then
+        echo "  Context injection is SELF-WIRING: add \`keywords: a, b, c\` to a skill/rule frontmatter"
+        echo "  and it registers itself — no hook edit. Check what is live with:"
+        echo "      python3 -c \"import sys;sys.path.insert(0,'.claude/hooks');import inject_context as i;print(sorted(i.DOMAINS))\""
+        echo ""
+    fi
     echo "  Then seed .claude/dev-docs/error-classes.md as you find bugs, and sweep with:"
     echo "      python3 .claude/scripts/audit_runner.py --coverage    # no class may be un-swept"
-    echo "      See .claude/dev-docs/reference/claude_code_deployment_guide.md"
+    if [[ -f ".claude/dev-docs/reference/claude_code_deployment_guide.md" ]]; then
+        echo "      See .claude/dev-docs/reference/claude_code_deployment_guide.md"
+    fi
 fi
