@@ -379,6 +379,52 @@ if [[ -n "$PRESET" ]]; then
     copy_payload_subtree "$PRESET" scripts  .claude/scripts
 fi
 
+# Retirement is STICKY: a component the repo moved to .claude/.retired/ does not
+# come back because a payload still ships it.
+#
+# Measured on n8n, 2026-08-03: the repo had retired 9 components — error-class-writer
+# (the 6/12 variant that rule 5 demoted), migration-planner, performance-auditor,
+# 4 commands and 2 hooks — and a single `--update --preset extended` reinstalled
+# every one of them. The copy step knows what the payload has; it knew nothing
+# about what the target had decided. So the deployment whose purpose was to SHRINK
+# the fleet grew this repo by 9 files, silently, and the retirement had to be
+# redone by hand after every deployment — which is the same as not having it.
+#
+# `.retired/` is a dotdir, so no loader reads it and the move is one `mv` from
+# reversible. Deleting the live copy here is therefore not a deletion: the file
+# is already sitting in the archive next to it. To genuinely take something back
+# into service, `mv` it out of .retired/ — an explicit act, which is the point.
+resurrect_guard() {
+    local rdir=".claude/.retired"
+    [[ -d "$rdir" ]] || return 0
+    # Itère sur les ENTRÉES de chaque sous-arbre, pas sur les fichiers. Un skill
+    # est un DOSSIER (`python-pro/SKILL.md`) : la version par fichier retirait le
+    # SKILL.md et laissait le répertoire, donc `ls .claude/skills` recomptait les
+    # 10 skills archivés au déploiement suivant — l'archivage semblait tenir et ne
+    # tenait pas. Mesuré sur n8n : 5 skills après archivage, 15 après le
+    # redéploiement qui prétendait en avoir gardé 29 retirés.
+    local n=0 sub entry live
+    for sub in "$rdir"/*/; do
+        [[ -d "$sub" ]] || continue
+        for entry in "$sub"*; do
+            [[ -e "$entry" ]] || continue
+            live=".claude/$(basename "$sub")/$(basename "$entry")"
+            [[ -e "$live" ]] || continue
+            if [[ "$DRY_RUN" == "1" ]]; then
+                echo "$DRY_PREFIX re-retire $live (already in $rdir)"
+            else
+                rm -rf "$live"
+            fi
+            n=$((n + 1))
+        done
+    done
+    if [[ "$n" -gt 0 ]]; then
+        echo "    ✓ $n retired component(s) kept retired (the payload ships them; this repo said no)"
+    fi
+    return 0
+}
+resurrect_guard
+
 # Templates (CLAUDE.md, DEVLOG.md, settings.json, dev-docs/*, etc.) live under
 # templates/ in the payload — they need TARGET-aware placement.
 install_template() {
