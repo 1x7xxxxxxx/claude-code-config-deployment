@@ -538,6 +538,27 @@ install_dev_docs() {
         if [[ "$HAS_ML" == "0" && ( "$rel" == mlops/* || "$rel" == features/* || "$rel" == reference/ml-unified/* ) ]]; then
             continue
         fi
+        # error-classes.md is NEVER overwritten, not even by --update. It is the
+        # one file in this tree a repo cannot re-download: every other dev-doc is
+        # a template, this one accumulates what the repo learned about its own
+        # bugs. Measured on a scratch install 2026-08-03: `--update` took a
+        # catalogue of 8 classes — 7 seeded plus one the repo had capitalised
+        # itself — down to 0, because the generic template is empty since the
+        # payload was shrunk to `config-optimale`. A .bak was written, so nothing
+        # was lost forever; but the signature `audit_runner` sweeps went from 8 to
+        # none, silently, in the run whose purpose was to improve the config.
+        # Refreshing the catalogue is a MERGE, and a merge is /capitalise's job,
+        # not a copy step's.
+        if [[ -f "$dest" && "$rel" == "error-classes.md" ]]; then
+            if [[ "$UPDATE" == "1" ]]; then
+                echo "    [keep] .claude/dev-docs/error-classes.md — never overwritten (your classes)."
+                echo "           New classes shipped by this payload, if any, must be merged by hand."
+            else
+                echo "    [skip] .claude/dev-docs/$rel already exists (use --update to refresh)"
+            fi
+            SKIPPED_ERROR_CLASSES=1
+            continue
+        fi
         if [[ -f "$dest" && "$UPDATE" == "0" ]]; then
             # Silent `continue` — not even a [skip] line. That is how eight repos
             # kept a pre-v2 error-classes.md whose per-class schema has no
