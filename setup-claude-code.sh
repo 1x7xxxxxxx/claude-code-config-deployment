@@ -13,7 +13,12 @@
 #
 # Modes:
 #   (default)  — fresh bootstrap. Creates .claude/, settings.json, settings.local.json,
-#                CLAUDE.md, DEVLOG.md, dev-docs/. Skips files that already exist.
+#                CLAUDE.md, DEVLOG.md, dev-docs/. Skips files that already exist —
+#                but a skipped CLAUDE.md is REPAIRED, not merely reported: the
+#                measured rules are retrofitted into the existing file by
+#                tools/dev/install_measured_rules.py. Without that step, an
+#                already-equipped repo receives commands, agents and scripts that
+#                no rule names, and a component no rule names never fires.
 #   --update   — re-extract payload. Updates skills/agents/hooks/commands/rules/scripts/dev-docs.
 #                ⚠️  It also OVERWRITES CLAUDE.md, DEVLOG.md and settings*.json with the generic
 #                templates. This block used to say "PRESERVES … settings*.json (backed up to *.bak)":
@@ -37,6 +42,9 @@
 #   --with-graphify        write tools/graphify_setup.md and try `pip install graphifyy`.
 #   --with-mcp             write .mcp.json wiring graphify.serve to graphify-out/graph.json.
 #   --force                allow downgrade of SETUP_VERSION (skip the warning).
+#   --with-skills          install .claude/skills/ (OPT-IN since 2026-08-03 —
+#                          measured 1 invocation over 222 cells, then 0 over 24
+#                          with the playbook injected and verified read).
 #   --only LIST            comma-separated subtrees to copy, e.g. --only skills,agents.
 #                          Default: all. Use it when the payload is older than the
 #                          project for some files — check audit_fleet.py provenance first.
@@ -76,6 +84,13 @@ DRY_RUN=0
 UPDATE=0
 FORCE=0
 ONLY=""
+WITH_SKILLS=0
+
+# Set when a load-bearing template was left in place because the repo already had
+# one. Read at step [4/8] and in the summary — a skip that nobody is told about is
+# how a deployment reports success while delivering nothing that can fire.
+SKIPPED_CLAUDE_MD=0
+SKIPPED_ERROR_CLASSES=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -93,6 +108,7 @@ while [[ $# -gt 0 ]]; do
         --update)          UPDATE=1;             shift ;;
         --force)           FORCE=1;              shift ;;
         --only)            ONLY="$2";            shift 2 ;;
+        --with-skills)     WITH_SKILLS=1;        shift ;;
         --version)
             hash="$(sha256sum "$0" 2>/dev/null | awk '{print $1}')"
             printf 'setup-claude-code.sh v%s\nsha256: %s\n' "$SETUP_VERSION" "${hash:-unknown}"
@@ -295,7 +311,24 @@ copy_payload_subtree() {
 }
 
 # Skills: generic first, then preset overlays (preset wins on collision).
-copy_payload_subtree generic skills    .claude/skills
+#
+# OPT-IN since 2026-08-03. Skills are the single largest block of context this
+# payload installs and the most thoroughly measured as inert: 1 invocation over
+# 222 cells, then 0 over 24 in the 2×2 that closed the last door — a playbook was
+# injected AND verified read, and the skill it prescribed still fired zero times.
+# The whole payload costs +9 432 tokens of context per session for a nil
+# capitalisation rate (F12, F13).
+#
+# They are not deleted, and existing repos are untouched: this only changes what a
+# NEW repo gets by default. `--with-skills` restores the old behaviour, and
+# `--only skills` (which deploy_fleet uses for the flat→spec-layout migration)
+# still works, because an explicit request is not the same as a default.
+if [[ "$WITH_SKILLS" == "1" || "$ONLY" == *skills* ]]; then
+    copy_payload_subtree generic skills    .claude/skills
+else
+    echo "    [skip] skills — opt-in since 2026-08-03 (measured 0 invocations"
+    echo "           over 24 cells with the playbook injected). Use --with-skills."
+fi
 
 # Retire flat skill files superseded by a spec-layout directory.
 #
@@ -364,6 +397,20 @@ install_template() {
     [[ -f "$src" ]] || return 0
     if [[ -f "$dest" && "$UPDATE" == "0" ]]; then
         echo "    [skip] $dest already exists (use --update to refresh, with .bak backup)"
+        # A skipped CLAUDE.md is not one skipped file among others: it is the ONLY
+        # file that triggers anything. Measured 33 spawns against 0 for the same
+        # agents named anywhere else. So a default-mode run on an already-equipped
+        # repo installs commands/, agents/ and scripts/ and names none of them —
+        # every piece lands inert. Found on the n8n deployment (2026-08-03), where
+        # /capitalise, select_tests.py and roadmap-keeper all shipped and none was
+        # reachable. Record it; step [4/8] repairs it.
+        # `if`, not `[[ … ]] && VAR=1`: under `set -e` the && form exits the whole
+        # script whenever the test is false — i.e. on every skipped template that
+        # is not CLAUDE.md. Caught by re-running the installer twice on the same
+        # repo, which died at the settings.json skip.
+        if [[ "$dest" == "CLAUDE.md" ]]; then
+            SKIPPED_CLAUDE_MD=1
+        fi
         return
     fi
     if [[ -f "$dest" && "$UPDATE" == "1" ]]; then
@@ -439,6 +486,42 @@ append_baseline_pointer() {
 }
 append_baseline_pointer
 
+# The repair for a skipped CLAUDE.md. It is a CALL, not a printed instruction, and
+# that is the whole point: this file already records that "fill in the placeholders"
+# — a manual step echoed at the end of the run — was ignored in 4 deployments out
+# of 6. A warning about the one file that carries every trigger would be ignored
+# the same way. install_measured_rules.py is marker-idempotent (it replaces its own
+# block rather than appending a second one), refuses to write into a CLAUDE.md with
+# no numbered rule list, and only lays a rule whose trigger exists in this repo.
+retrofit_measured_rules() {
+    [[ "$SKIPPED_CLAUDE_MD" == "1" ]] || return 0
+    local tool="$SCRIPT_DIR/tools/dev/install_measured_rules.py"
+    echo ""
+    echo "  CLAUDE.md was left in place — it is the only file that triggers anything,"
+    echo "  so the pieces just installed would be unreachable. Retrofitting the"
+    echo "  measured rules into the existing file:"
+    if [[ ! -f "$tool" ]]; then
+        echo "  ⚠️  NOT retrofitted: $tool is absent (running outside a baseline clone)." >&2
+        echo "      The repo now carries commands/agents/scripts that NO rule names —" >&2
+        echo "      every one of them is inert. Fix from a baseline clone with:" >&2
+        echo "        python3 tools/dev/install_measured_rules.py --project $REPO_ROOT --write" >&2
+        return 0
+    fi
+    if [[ "$DRY_RUN" == "1" ]]; then
+        python3 "$tool" --project "$REPO_ROOT" 2>&1 | sed 's/^/    /'
+        return 0
+    fi
+    if ! python3 "$tool" --project "$REPO_ROOT" --write 2>&1 | sed 's/^/    /'; then
+        echo "  ⚠️  retrofit failed — the installed pieces are named by no rule." >&2
+    fi
+}
+# NOTE: called at the END of step [5/8], not here. install_measured_rules only
+# lays a rule whose trigger exists — and the roadmap-keeper rule's trigger is
+# .claude/dev-docs/ROADMAP.md, which step [5/8] is what creates. Calling it here
+# meant that rule was permanently skipped on fresh installs, and the agent shipped
+# unnamed: the exact defect this retrofit exists to prevent, reintroduced by
+# running the fix before the thing it tests for exists.
+
 # ── [5/8] dev-docs templates ──────────────────────────────────────────────────
 
 echo "[5/8] Installing dev-docs templates..."
@@ -456,6 +539,15 @@ install_dev_docs() {
             continue
         fi
         if [[ -f "$dest" && "$UPDATE" == "0" ]]; then
+            # Silent `continue` — not even a [skip] line. That is how eight repos
+            # kept a pre-v2 error-classes.md whose per-class schema has no
+            # `root_cause` and no `long_term_fix`, while /capitalise writes both:
+            # the command and the catalogue it feeds stopped speaking the same
+            # schema, and nothing said so. Announce it.
+            echo "    [skip] .claude/dev-docs/$rel already exists (use --update to refresh)"
+            if [[ "$rel" == "error-classes.md" ]]; then   # `if`: see install_template
+                SKIPPED_ERROR_CLASSES=1
+            fi
             continue
         fi
         if [[ -f "$dest" && "$UPDATE" == "1" ]]; then
@@ -477,6 +569,9 @@ install_dev_docs generic
 
 # docs/adr template (if present in payload).
 install_template generic docs/adr/ADR-TEMPLATE.md docs/adr/ADR-TEMPLATE.md
+
+# Now that dev-docs exist, every trigger the measured rules test for is in place.
+retrofit_measured_rules
 
 # ── [6/8] Optional scaffolds ──────────────────────────────────────────────────
 
@@ -685,6 +780,16 @@ echo "  .claude/commands/ → $(count_dir .claude/commands '*.md') entries"
 echo "  .claude/rules/    → $(count_dir .claude/rules '*.md') entries"
 echo "  .claude/scripts/  → $(count_dir .claude/scripts '*.py') entries"
 echo "════════════════════════════════════════════════════════════"
+
+if [[ "$SKIPPED_ERROR_CLASSES" == "1" && "$DRY_RUN" == "0" ]]; then
+    echo ""
+    echo "⚠️  error-classes.md was left in place (yours has content — correct)."
+    echo "    But /capitalise writes root_cause + long_term_fix, and a pre-v2"
+    echo "    catalogue declares neither. Check which classes are incomplete:"
+    echo "        python3 .claude/scripts/audit_runner.py --fields"
+    echo "    Backfill is not cosmetic: long_term_fix is the only field that"
+    echo "    says how the class stops recurring, and no signature checks it."
+fi
 
 if [[ "$UPDATE" == "0" && "$DRY_RUN" == "0" ]]; then
     echo ""
