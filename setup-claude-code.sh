@@ -114,7 +114,7 @@ while [[ $# -gt 0 ]]; do
             printf 'setup-claude-code.sh v%s\nsha256: %s\n' "$SETUP_VERSION" "${hash:-unknown}"
             exit 0 ;;
         --help|-h)
-            sed -n '2,40p' "$0"
+            sed -n '2,51p' "$0"   # through the Flags block; 40 cut --force/--with-skills/--only
             exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac

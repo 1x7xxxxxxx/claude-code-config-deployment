@@ -17,13 +17,15 @@ bash setup-claude-code.sh --version
 
 Prerequisites: Bash, Python 3.10+, and a git repo to install into. The payloads
 are embedded base64, so the installer needs no network access at install time.
+Every count and behaviour on this page was verified on 2026-08-19 against
+Claude Code 2.1.235, by installing into fresh repositories.
 
 ## What ships here
 
 | File | Role |
 |---|---|
 | `setup-claude-code.sh` | The installer. `--help` lists every flag. |
-| `setup-payload-generic.tar.gz.b64` | The base payload it unpacks: agents, scripts, templates, two rules. |
+| `setup-payload-generic.tar.gz.b64` | The base payload it unpacks: 3 agents, 1 command, 3 scripts, and the `CLAUDE.md` / `DEVLOG.md` / dev-docs templates. No hooks, no rules, no skills — see the table below. |
 | `setup-payload-ml.tar.gz.b64` | `--preset ml` overlay — ML/data-science skills, agents and rules, kept out of the base so a C++ or workflow project does not pay for them. |
 | `setup-payload-extended.tar.gz.b64` | `--preset extended` overlay — the larger command and skill set. |
 
@@ -68,6 +70,24 @@ The gate only wraps the **base** payload's skills — which is empty — so
 `--preset extended` installs its 24 skills whether or not you pass the flag.
 Verified 2026-08-19: 24 skills with `--with-skills`, 24 without. Until that is
 fixed, budget the context cost when you pick `extended`.
+
+### If the repo already has a `CLAUDE.md`
+
+The installer never overwrites it — but then the agents, commands and scripts it
+just installed are named by nothing, and a component no rule names never fires
+(fact 1). In a baseline clone the rules are retrofitted automatically; **this
+distribution does not carry that tool**, so the installer prints:
+
+```
+⚠️  NOT retrofitted: …/tools/dev/install_measured_rules.py is absent
+    The repo now carries commands/agents/scripts that NO rule names —
+    every one of them is inert.
+```
+
+The install still completes (verified: 11 agents, 24 skills on `extended`) and
+your `CLAUDE.md` is untouched. You then have to name the pieces yourself: add
+imperative rules to `CLAUDE.md` that call the agents and commands by name. A
+roster table will not do it — that is fact 1, measured at 33 spawns versus 0.
 
 ## The eight measured facts it rests on
 
