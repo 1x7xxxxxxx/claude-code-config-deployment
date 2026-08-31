@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# ── CRLF self-check ───────────────────────────────────────────────────────────
+# MUST stay above `set -euo pipefail`, and MUST stay a single line ending in a
+# comment. Under a CRLF checkout every multi-line construct is already broken —
+# `if ... then\r` is a syntax error, and `set -euo pipefail\r` dies with
+# ": invalid option name" — so a guard written as an if/fi block never runs.
+# The trailing `#` swallows the \r that would otherwise glue itself to `exit 1`
+# and make bash print "numeric argument required" over our message.
+# Verified 2026-08-31 both ways: silent no-op on LF, single clean message on CRLF.
+grep -q $'\r' "$0" 2>/dev/null && printf '%s\n' "setup-claude-code.sh: CRLF line endings detected." "" "  git config core.autocrlf false && git config core.eol lf" "  git rm --cached -r . >/dev/null && git reset --hard" "" "This also corrupts setup-payload-*.tar.gz.b64 (base64 -d rejects \\r)," "so fixing only this file is not enough. See README, section 'Windows: the CRLF trap'." >&2 && exit 1 #
 # =============================================================================
 # setup-claude-code.sh — Bootstrap Claude Code configuration for a new project
 # =============================================================================
@@ -143,6 +152,38 @@ if [[ ! -f "$PAYLOAD_GENERIC" ]]; then
     echo "       Regenerate via: bash tools/dev/repack-claude-payloads.sh" >&2
     exit 1
 fi
+
+# Refuse to install into this distribution's own clone.
+#
+# REPO_ROOT is $(pwd), NOT the script's directory — the installer targets wherever
+# you stand, and `bash setup-claude-code.sh` from inside the clone therefore drops
+# .claude/ + CLAUDE.md into the distribution itself. Observed 2026-08-31: a user
+# cd'd into the clone (the natural move after `git clone`) and ran it there; only
+# the CRLF breakage stopped the install from landing in the wrong repo.
+if [[ "$REPO_ROOT" == "$SCRIPT_DIR" ]]; then
+    echo "Error: refusing to install into this distribution's own directory." >&2
+    echo "       $REPO_ROOT is where setup-claude-code.sh lives, not a target project." >&2
+    echo "       The installer writes into \$(pwd). Stand in the TARGET repo and call" >&2
+    echo "       the script by path:" >&2
+    echo "           cd /path/to/my-project" >&2
+    echo "           bash $SCRIPT_DIR/setup-claude-code.sh --project-name my-project" >&2
+    exit 1
+fi
+
+# Payload integrity: a CRLF checkout corrupts the base64 streams too.
+#
+# The script's own CRLF guard (top of file) does not cover these: `base64 -d`
+# rejects the stray \r and the extraction fails mid-run, after directories have
+# already been created. Checked here, before anything is written.
+for _pl in "$PAYLOAD_GENERIC" ${PAYLOAD_PRESET:+"$PAYLOAD_PRESET"}; do
+    if grep -q $'\r' "$_pl" 2>/dev/null; then
+        echo "Error: $(basename "$_pl") has CRLF line endings — base64 will reject it." >&2
+        echo "       git config core.autocrlf false && git config core.eol lf" >&2
+        echo "       git rm --cached -r . >/dev/null && git reset --hard" >&2
+        echo "       See README, section 'Windows: the CRLF trap'." >&2
+        exit 1
+    fi
+done
 
 if [[ -n "$PRESET" && ! -f "$PAYLOAD_PRESET" ]]; then
     echo "Error: preset payload not found: $PAYLOAD_PRESET" >&2
@@ -371,12 +412,29 @@ copy_payload_subtree generic workflows .claude/workflows
 copy_payload_subtree generic tools     tools
 
 if [[ -n "$PRESET" ]]; then
-    copy_payload_subtree "$PRESET" skills   .claude/skills
+    # Skills: gated by the SAME condition as the generic block above.
+    #
+    # Until 2026-08-31 this line was unconditional, so --with-skills gated only the
+    # generic payload — which ships zero skills — and the flag was therefore inert:
+    # `--preset extended` installed its skills either way. The opt-in that the
+    # 2026-08-03 measurement paid for did not exist for the only payload that has
+    # any skills to opt out of.
+    if [[ "$WITH_SKILLS" == "1" || "$ONLY" == *skills* ]]; then
+        copy_payload_subtree "$PRESET" skills   .claude/skills
+    else
+        echo "    [skip] $PRESET/skills — opt-in, use --with-skills."
+    fi
     copy_payload_subtree "$PRESET" agents   .claude/agents
     copy_payload_subtree "$PRESET" hooks    .claude/hooks
     copy_payload_subtree "$PRESET" commands .claude/commands
     copy_payload_subtree "$PRESET" rules    .claude/rules
     copy_payload_subtree "$PRESET" scripts  .claude/scripts
+    # workflows/ and tools/ were copied for `generic` only, which carries neither.
+    # The extended payload ships 5 workflows and tools/generate-dev-docs.py (37 KB);
+    # all six were unpacked to the staging dir and then silently discarded. The
+    # installer reports no count for these two trees, so nothing ever said so.
+    copy_payload_subtree "$PRESET" workflows .claude/workflows
+    copy_payload_subtree "$PRESET" tools     tools
 fi
 
 # Retirement is STICKY: a component the repo moved to .claude/.retired/ does not

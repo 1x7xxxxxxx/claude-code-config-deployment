@@ -1,0 +1,20 @@
+# Line endings. See README §"Windows: the CRLF trap".
+#
+# Git's Windows default (core.autocrlf=true) rewrites LF to CRLF on checkout.
+# That breaks BOTH deliverables in this repo, and the second failure is silent:
+#
+#   1. setup-claude-code.sh — bash reads `set -euo pipefail\r` and dies with
+#      ": invalid option name" plus "line 58: $'\r': command not found".
+#   2. setup-payload-*.tar.gz.b64 — `base64 -d` rejects the stray \r, so the
+#      payload never unpacks. This one only surfaces AFTER the script is fixed.
+#
+# Verified 2026-08-31 on a fresh Windows clone: all four tracked text files came
+# out CRLF and the installer could not run.
+* text=auto eol=lf
+
+*.sh  text eol=lf
+*.py  text eol=lf
+*.md  text eol=lf
+
+# Payloads are base64 streams, not prose: never touch a byte of them.
+*.b64 -text
